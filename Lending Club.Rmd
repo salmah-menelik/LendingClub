@@ -1,0 +1,672 @@
+---
+title: "Final Case"
+author: "Salmah Menelik"
+date: "April 16, 2026"
+output: html_document
+---
+
+```{r setup, echo=TRUE}
+# Loading libraries
+library(tidyverse)
+library(lubridate)
+library(maps)
+library(ggplot2)
+
+knitr::opts_knit$set(
+  root.dir = "/Users/salmahmenelik/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis"
+)
+```
+```{r}
+getwd()
+```
+# This analysis aims to explore Lending Club loan data from 2012 to 2017, focusing on identifying geographic, financial, and temporal patterns in lending behavior. Due to inconsistencies across datasets, initial preprocessing and data cleaning steps were required before conducting the analysis.
+```{r}
+# Loading 2013 data set, that will be used as structural reference because it has column names correctly defined, what is fundamental to ensure consistency in files before stacking and integrating them.
+data2013 <- read_csv("~/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis/data2013.csv")
+
+data2013 <- data2013 %>% select(-any_of("...1")) # Removes extra columns berfore using it as reference
+
+# Verifies the name of the columns that are going to be used as default
+#names(data2013)
+```
+```{r clean-columns}
+# Stores correct column names using 2013 as a reference
+col_names_ref <- names(data2013)
+```
+### During initial inspection, an additional column ("...1") was identified.It was likely generated automatically during the data export process. Since the column does not contain any relevant information for the analysis it was removed, avoiding inconsistencies and ensuring integrity in subsequent transformations.
+```{r load-other-data}
+# Load datasets correcting column misalignment
+
+# 2012
+data2012 <- read_csv("~/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis/data2012.csv", skip = 1)
+data2012 <- data2012 %>% select(-1)
+names(data2012) <- col_names_ref
+
+# 2014
+data2014 <- read_csv("~/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis/data2014.csv", skip = 1)
+data2014 <- data2014 %>% select(-1)
+names(data2014) <- col_names_ref
+
+# 2015
+data2015 <- read_csv("~/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis/data2015.csv", skip = 1)
+data2015 <- data2015 %>% select(-1)
+names(data2015) <- col_names_ref
+
+# 2016
+data2016 <- read_csv("~/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis/data2016.csv", skip = 1)
+data2016 <- data2016 %>% select(-1)
+names(data2016) <- col_names_ref
+
+# 2017
+data2017 <- read_csv("~/Desktop/NEC/Term 1/Data Science Tools/Final Case Analysis/data2017.csv", skip = 1)
+data2017 <- data2017 %>% select(-1)
+names(data2017) <- col_names_ref
+```
+```{r remove-extra-column}
+# Remove redundant column if present to ensure data consistency
+data2012 <- data2012 %>% select(-any_of("...1"))
+data2013 <- data2013 %>% select(-any_of("...1"))
+data2014 <- data2014 %>% select(-any_of("...1"))
+data2016 <- data2016 %>% select(-any_of("...1"))
+data2017 <- data2017 %>% select(-any_of("...1"))
+```
+```{r fix-types}
+# Convert all columns to character to avoid binding conflicts
+fix_types <- function(df) {
+  df %>%
+   mutate(across(everything(), as.character))
+}
+
+# Applies changes in all the datasets
+data2012 <- fix_types(data2012)
+data2013 <- fix_types(data2013)
+data2014 <- fix_types(data2014)
+data2015 <- fix_types(data2015)
+data2016 <- fix_types(data2016)
+data2017 <- fix_types(data2017)
+```
+```{r bind-data}
+# Combines all datasets
+loans_all <- bind_rows(
+  data2012,
+  data2013,
+  data2014,
+  data2015,
+  data2016,
+  data2017
+)
+```
+```{r data-prep}
+# Cleaning
+loans_all <- loans_all %>%
+  mutate(
+    loan_amnt = as.numeric(loan_amnt),
+    annual_inc = as.numeric(annual_inc),
+    dti = as.numeric(dti),
+    int_rate = str_trim(int_rate),
+    int_rate = as.numeric(str_remove(int_rate, "%")),
+    issue_Year = lubridate::year(lubridate::my(issue_d))
+  )
+
+# Load and clean states
+states <- read_csv("states.csv") %>%
+  rename(
+    state = Geography,
+    households = Num_Households
+  )
+
+# Load and clean regions
+regions <- read_csv("states_regions.csv") %>%
+  select(-any_of("...5"))
+
+# Create lookup
+state_lookup <- data.frame(
+  addr_state = state.abb,
+  state = state.name
+)
+
+# Join everything
+loans_geo <- loans_all %>%
+  left_join(state_lookup, by = "addr_state") %>%
+  left_join(states, by = "state") %>%
+  left_join(regions, by = c("addr_state" = "State Code"))
+```
+```{r}
+names(loans_geo)
+```
+## 1)	Find the distribution of number of loans by state, regions and divisions. Describe in your own words the geographic differences in the number of loans. Also, analyze your results by comparing number of loans per capita. Did you notice any missing states in the Lending Club data? If yes, then find out why. 
+
+## Objective
+
+The objective of this analysis is to understand how Lending Club loan activity is geographically distributed across the United States. This includes evaluating loan volume by state, region, and division, as well as analyzing loan distribution on a per capita basis to better assess lending intensity across locations.
+
+## Analysis by State
+```{r q1-state}
+# Group the dataset by state to analyze loan distribution
+loans_by_state <- loans_geo %>%
+  
+  # Aggregate data at the state level
+  group_by(addr_state) %>%
+  
+  # Count the total number of loans issued in each state
+  summarise(total_loans = n()) %>%
+  
+  # Sort states in descending order based on total number of loans
+  arrange(desc(total_loans))
+
+# Display the resulting summary table
+loans_by_state
+```
+# Analysis by Region
+```{r q1-region}
+# Group the dataset by geographic region to analyze loan distribution
+loans_by_region <- loans_geo %>%
+  
+  # Aggregate data at the Region level
+  group_by(Region) %>%
+  
+  # Count the total number of loans issued in each region
+  summarise(total_loans = n()) %>%
+  
+  # Sort regions in descending order based on total number of loans
+  arrange(desc(total_loans)) 
+
+# Display the resulting summary table
+loans_by_region
+```
+# Analysis by Division
+```{r q1-division}
+# Group the dataset by geographic division to analyze loan distribution
+loans_by_division <- loans_geo %>%
+  
+  # Aggregate data at the Division level
+  group_by(Division) %>%
+  
+  # Count the total number of loans issued in each division
+  summarise(total_loans = n()) %>%
+  
+  # Sort divisions in descending order based on total number of loans
+  arrange(desc(total_loans))
+
+# Display the resulting summary table
+loans_by_division
+```
+```{r}
+names(regions)
+```
+```{r}
+head(loans_geo)
+```
+```{r q1-percapita}
+loans_per_capita <- loans_geo %>%
+  group_by(addr_state, population) %>%
+  summarise(total_loans = n(), .groups = "drop") %>%
+  mutate(loans_per_capita = total_loans / population) %>%
+  arrange(desc(loans_per_capita))
+
+head(loans_per_capita, 10)
+```
+### An additional transformation was required to align state identifiers, as the main dataset used state abbreviations while the demographic dataset used full state names. A lookup table was introduced to standardize this mapping and ensure accurate population-based analysis.
+
+## Interpretation: While large states such as California and New York dominate in absolute loan volume, the per capita analysis reveals a different pattern. Smaller states like Nevada and Connecticut exhibit higher loan penetration relative to their population size.
+
+This suggests that Lending Club’s adoption is not solely driven by population, but also by regional financial behavior and market dynamics. Per capita analysis provides a more accurate representation of lending intensity across states.
+```{r missing-states}
+setdiff(unique(states$state), unique(loans_geo$state))
+```
+## Interpretation: The analysis shows that District of Columbia and Puerto Rico are not present in the Lending Club dataset. However, these are not standard U.S. states. District of Columbia is a federal district, and Puerto Rico is a U.S. territory.
+
+Their absence is likely related to regulatory and operational constraints, as lending platforms such as Lending Club may not operate uniformly across non-state jurisdictions. Therefore, the dataset still provides comprehensive coverage of the 50 U.S. states, and the missing entries do not represent a data quality issue.
+```{r}
+# Q1. Geographic Distribution of Lending Club Loans
+```
+## Distribution by State
+
+### The way loans are spread out across U.S. states makes it clear that they are mostly in areas with a lot of people and businesses. The biggest share of all loans goes to states like California, New York, Texas, and Florida. This pattern is to be expected because these states have more people, more businesses, and more access to financial services.
+
+But looking at the total amount of loans made doesn't fully show how people lend money, since it doesn't take into account the differences in population between states.
+
+## Distribution by Region and Division
+
+### The South and West regions have the most total loans at the regional level, followed by the Northeast and Midwest. This shows how people are spread out and how the economy works in different regions.
+
+A closer look at the division level shows even more differences. The South Atlantic, Pacific, and Middle Atlantic divisions have the most loans, which shows that lending is especially strong in areas with a lot of people and along the coast. On the other hand, divisions with fewer people or less economic activity have fewer total loans.
+
+## Per Capita Analysis
+
+### When you take into account the population, a different pattern appears. The per capita analysis shows that smaller states like Nevada, Connecticut, and Rhode Island have a higher percentage of loans compared to their population size.
+
+This means that Lending Club's popularity isn't just based on how many people live there; it's also based on how people in that area handle their money, how easy it is to get to other lending platforms, and the state of the economy in that area. For instance, California has the most loans overall, but it doesn't have the most loans per person. This shows how important it is to normalize data to find real patterns.
+
+## Missing States Analysis
+
+### The analysis found that the dataset does not include the District of Columbia or Puerto Rico. But these aren't normal U.S. states. The District of Columbia is a federal district, and Puerto Rico is a U.S. territory.
+
+Their absence is probably because of rules and operational problems. For example, peer-to-peer lending platforms like Lending Club may not work the same way in all non-state jurisdictions. So, the dataset still has complete coverage of all 50 U.S. states, and the missing entries don't mean that the data quality is bad.
+
+## Final Interpretation
+
+The geographic analysis shows that lending is mostly done in big, economically active states. However, the per capita analysis shows a more complicated pattern of adoption. Differences between regions and divisions show that both demographic and economic factors affect how people lend money.
+
+The analysis shows that when looking at geographic patterns, it's important to look at both absolute and normalized metrics. It's also important to know the regulatory and operational scope of the dataset.
+
+# 2)	Compare the average amount of loans granted by all states and divisions. Which states and divisions have the highest and lowest average loan amounts?
+
+## Objective: The objective of this analysis is to examine the variation in average loan amounts across U.S. states and geographic divisions. By comparing average loan sizes, this section aims to identify regional patterns in borrowing behavior and understand how economic and demographic factors may influence loan demand and allocation. This analysis provides deeper insight beyond loan volume, focusing on differences in loan size across locations.
+
+## Analysis by State
+```{r q2-state}
+# Calculate the average loan amount by state
+avg_loan_state <- loans_geo %>%
+  
+  # Group the dataset by state (addr_state)
+  group_by(addr_state) %>%
+  
+  # Compute the average loan amount for each state
+  summarise(
+    avg_loan = mean(loan_amnt, na.rm = TRUE)  # na.rm = TRUE removes missing values
+  ) %>%
+  
+  # Sort results from highest to lowest average loan
+  arrange(desc(avg_loan))
+
+# Display the top 10 states with the highest average loan amounts
+head(avg_loan_state, 10)
+```
+```{r q2-state-low}
+# States with Lowest Average
+tail(avg_loan_state, 10)
+```
+### Interpretation 
+
+The analysis of average loan amounts by state reveals significant variation across geographic locations. States such as Alaska, Virginia, District of Columbia, Maryland, and New Jersey present the highest average loan amounts.
+
+A clear pattern emerges in which states with higher income levels and cost of living tend to exhibit larger average loan amounts. For example, states in the Northeast and regions surrounding major economic hubs such as Washington, D.C. show consistently higher averages, suggesting that borrowers in these areas may require larger loans to meet higher living costs and financial obligations.
+
+## Analysis by Division
+```{r q2-division}
+# Group the dataset by geographic division to analyze average loan amounts
+avg_loan_division <- loans_geo %>%
+  
+  # Aggregate data at the Division level
+  group_by(Division) %>%
+  
+  # Calculate the average loan amount for each division
+  # na.rm = TRUE ensures missing values do not affect the calculation
+  summarise(avg_loan = mean(loan_amnt, na.rm = TRUE)) %>%
+  
+  # Remove any divisions where the average could not be computed (NA values)
+  filter(!is.na(avg_loan)) %>%  
+  
+  # Sort divisions in descending order based on average loan amount
+  arrange(desc(avg_loan))
+
+# Display the resulting summary table
+avg_loan_division
+```
+
+At the division level, the results show that West South Central, New England, and Pacific divisions have the highest average loan amounts, while divisions such as West North Central and East South Central present lower averages.
+
+Missing values were removed to ensure accurate comparison across divisions.
+
+This pattern suggests that regional economic conditions play a key role in determining loan size. Divisions with stronger economic activity, higher income levels, and greater urbanization tend to support larger loan amounts. In contrast, divisions with lower economic density or more rural characteristics tend to exhibit smaller average loan sizes.
+
+## Final Interpretation
+
+Overall, the analysis indicates that average loan size varies significantly across both states and divisions, reflecting underlying economic, demographic, and regional differences.
+
+While Q1 demonstrated that loan volume is concentrated in larger states, this analysis shows that loan size follows a different pattern, being more closely associated with cost of living, income levels, and regional economic conditions.
+
+These findings highlight the importance of analyzing both loan volume and loan size to gain a comprehensive understanding of lending behavior across geographic areas.
+
+# 3)	Compare the average interest rate charged and average loan amount by the loan Grade. Do you notice any patterns? 
+
+## Objective
+
+The objective of this analysis is to examine how loan grade influences both interest rates and loan amounts. By comparing these metrics across grades, this section aims to identify patterns that reflect the relationship between credit risk and lending conditions.
+```{r q3-grade}
+# Group the dataset by loan grade to analyze differences in risk and pricing
+q3_grade <- loans_all %>%
+  
+  # Aggregate data at the grade level
+  group_by(grade) %>%
+  
+  # Calculate average interest rate and average loan amount for each grade
+  # na.rm = TRUE ensures missing values do not affect the calculations
+  summarise(
+    avg_interest = mean(int_rate, na.rm = TRUE),
+    avg_loan = mean(loan_amnt, na.rm = TRUE)
+  ) %>%
+  
+  # Remove any rows with missing grade values
+  filter(!is.na(grade)) %>%
+  
+  # Sort results by grade (typically from highest quality to lowest risk category order)
+  arrange(grade)
+
+# Display the resulting summary table
+q3_grade   
+```
+### Interpretation
+
+The analysis reveals a clear and monotonic relationship between loan grade and interest rates. As the loan grade decreases from A to G, the average interest rate increases significantly, reflecting a clear risk-based pricing strategy. Borrowers with lower creditworthiness are charged higher interest rates to compensate for the increased probability of default.
+
+Interestingly, the average loan amount also increases as the loan grade decreases. Higher-risk borrowers (grades E, F, and G) tend to receive larger loans compared to lower-risk borrowers. This pattern may indicate that higher-risk individuals demand larger loan amounts or that Lending Club is willing to extend larger loans despite increased risk, potentially to maximize returns.
+
+Overall, the results suggest a dual relationship: while interest rates are strongly driven by credit risk, loan amounts also increase with risk, indicating that Lending Club may be balancing higher returns with higher exposure, reflecting a more complex lending strategy than traditional risk-averse models.
+
+# 4)	Run a frequency distribution of number of loans, average loan amount and average interest rate for each state by year (2012 through 2017). Describe the changing patterns in those numbers. 
+
+## Objective
+
+The objective of this analysis is to examine how lending activity evolved over time across states between 2012 and 2017. By analyzing the number of loans, average loan amounts, and average interest rates by year, this section aims to identify temporal patterns and assess how Lending Club’s lending behavior changed, particularly around its 2014 IPO.
+
+```{r q4-time}
+# Group the dataset by year and state to analyze temporal trends in lending activity
+q4_time <- loans_all %>%
+  
+  # Aggregate data at the year and state level
+  group_by(issue_Year, addr_state) %>%
+  
+  # Calculate key metrics for each year-state combination:
+  # - total number of loans
+  # - average loan amount
+  # - average interest rate
+  summarise(
+    total_loans = n(),
+    avg_loan = mean(loan_amnt, na.rm = TRUE),
+    avg_interest = mean(int_rate, na.rm = TRUE),
+    .groups = "drop"  # Ensures the result is ungrouped after summarization
+  ) %>%
+  
+  # Sort results by year (ascending) and then by total loans (descending within each year)
+  arrange(issue_Year, desc(total_loans))
+
+# Display the first 20 rows of the resulting dataset
+head(q4_time, 20)
+```
+```{r}
+# Aggregate total loan volume by year to analyze overall lending trends over time
+q4_time %>%
+  
+  # Group data by year
+  group_by(issue_Year) %>%
+  
+  # Sum the total number of loans across all states for each year
+  summarise(total_loans = sum(total_loans))
+```
+```{r}
+q4_summary <- loans_all %>%
+  group_by(issue_Year) %>%
+  summarise(
+    total_loans = n(),
+    avg_loan = mean(loan_amnt, na.rm = TRUE),
+    avg_interest = mean(int_rate, na.rm = TRUE)
+  ) %>%
+  filter(!is.na(issue_Year))   
+
+q4_summary 
+```
+### Interpretation
+
+The analysis reveals a substantial increase in lending activity over time, with total loan volume growing from approximately 53,000 in 2012 to over 440,000 in 2017. This sharp expansion, particularly after 2014, indicates a significant scaling of Lending Club’s operations following its IPO.
+
+Average loan amounts increase between 2012 and 2015, suggesting that the platform initially expanded by offering larger loans. However, after 2015, loan sizes stabilize, indicating a transition toward more standardized lending practices despite continued growth in volume.
+
+Interest rates follow a dynamic pattern, peaking in 2013 and declining notably in 2015 before slightly rising again in subsequent years. This trend suggests that as Lending Club expanded, it may have temporarily reduced pricing to attract a broader borrower base, followed by adjustments to rebalance risk.
+
+Overall, the findings indicate a post-IPO strategic shift characterized by rapid growth in loan volume, controlled loan sizing, and adaptive interest rate strategies, reflecting a balance between expansion, competitiveness, and risk management.
+
+# 5)	Is there a relationship with the population size of a state and the average loan amount given? Is there a relationship between Grade of loans and median income level in a state?
+
+## Objective
+
+The objective of this analysis is to examine whether there is a relationship between the population size of a state and the average loan amount issued. This helps assess whether larger states tend to receive larger loans or if loan size is independent of population scale.  
+
+```{r q5-population}
+# Analyze the relationship between state population and average loan amount
+q5_population <- loans_geo %>%
+  
+  # Group data by state and its corresponding population
+  group_by(addr_state, population) %>%
+  
+  # Calculate the average loan amount for each state
+  # na.rm = TRUE ensures missing values do not affect the calculation
+  summarise(
+    avg_loan = mean(loan_amnt, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  
+  # Remove any records with missing population values
+  filter(!is.na(population))
+
+# Display the resulting dataset for analysis
+q5_population
+```
+```{r}
+# Calculate the correlation between state population and average loan amount
+# use = "complete.obs" ensures that only observations with no missing values are considered
+cor(q5_population$population, q5_population$avg_loan, use = "complete.obs")
+```
+### Interpretation
+
+The analysis shows a very weak positive relationship (correlation ≈ 0.13) between state population size and average loan amount. This indicates that while larger states tend to issue a higher number of loans, population size has little influence on the average loan amount.
+
+In other words, borrowers in both large and small states tend to receive similar loan sizes on average. This suggests that loan amounts are primarily driven by individual-level factors such as income, creditworthiness, and financial needs rather than the overall population of a state.
+
+Overall, the findings confirm that population size affects loan volume, but not loan size, reinforcing the distinction between scale (how many loans) and behavior (how large the loans are).
+
+```{r}
+q5_income <- loans_geo %>%
+  group_by(grade) %>%
+  summarise(
+    avg_income = mean(Median_income_Households, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(grade)) %>%
+  arrange(grade)
+
+q5_income
+```
+### Interpretation
+
+The analysis reveals little to no meaningful relationship between loan grade and median income levels. Average income remains relatively stable across all loan grades, with only minor variations between them.
+
+This suggests that median income at the state level is not a strong determinant of loan grade. While loan grades are designed to reflect borrower risk, this risk classification appears to be driven more by individual-level factors such as credit history, debt-to-income ratio, and repayment behavior rather than broader state-level income averages.
+
+The findings highlight an important distinction: although income is typically associated with creditworthiness, aggregated median income at the state level does not sufficiently capture individual borrower risk. As a result, loan grading decisions are likely based on more granular, borrower-specific financial metrics rather than regional economic conditions.
+
+# 6)	This is an open-ended question where you are asked to share an interesting fact that you found through data analysis. 
+
+## Additional Insight
+
+One of the most interesting findings from this analysis is the apparent trade-off between growth and risk in Lending Club’s lending strategy over time.
+
+Following its IPO in 2014, the company experienced a significant increase in loan volume, as observed in the sharp rise in total loans issued between 2014 and 2017. This expansion suggests an aggressive growth strategy aimed at scaling operations and capturing market share.
+
+However, this growth appears to be accompanied by an increase in risk exposure. The analysis of loan grades shows that higher-risk loans (grades E, F, and G) are associated with both higher interest rates and larger loan amounts. This indicates that Lending Club may have been extending larger loans to riskier borrowers, potentially to maximize returns.
+
+At the same time, the lack of a strong relationship between median income and loan grade suggests that traditional macroeconomic indicators, such as state-level income, are not the primary drivers of risk assessment. Instead, lending decisions are likely based on more granular borrower-level factors.
+
+Taken together, these findings suggest that Lending Club’s post-IPO strategy involved balancing rapid growth with increased risk-taking, leveraging higher interest rates to compensate for potentially riskier lending behavior.
+
+This insight highlights the importance of understanding not only how much lending is occurring, but also the underlying risk dynamics associated with that growth.
+
+## Conclusion
+
+This analysis demonstrates how Lending Club’s lending behavior is shaped by a combination of geographic, economic, and risk-related factors. While loan volume is largely influenced by population and regional activity, loan size and interest rates are more closely tied to borrower risk characteristics.
+
+The findings highlight the importance of combining descriptive analytics with normalized metrics and behavioral insights to fully understand lending dynamics. Overall, the analysis provides a comprehensive view of how Lending Club scaled its operations while managing the trade-off between growth and risk.
+
+# Visuals
+
+## 1)	Create a plot of interest rates and Grade or a loan and describe the pattern. 
+```{r viz1-grade}
+# Business objective: Analyze how interest rates vary across loan grades,
+# highlighting the progression of risk-based pricing
+
+ggplot(q3_grade, aes(x = grade, y = avg_interest, group = 1)) +
+  
+  # Creates a line connecting the grades (ordered progression)
+  geom_line() +
+  
+  # Adds points to highlight each grade value
+  geom_point() +
+  
+  # Adds descriptive titles and axis labels
+  labs(
+    title = "Average Interest Rate by Loan Grade",
+    subtitle = "Interest rates increase significantly as loan grade decreases",
+    x = "Loan Grade",
+    y = "Average Interest Rate (%)"
+  ) +
+  
+  # Clean visual style
+  theme_minimal()
+```
+### Interpretation
+
+The visualization shows a clear upward trend in interest rates as loan grade decreases from A to G. This pattern confirms that Lending Club applies a risk-based pricing strategy, where lower creditworthiness is associated with higher borrowing costs.
+
+## 2)	Create a map of US states and color code the map with the average amount of loans given.
+```{r map-data} 
+library(maps)
+# Business objective: Visualize how average loan amounts vary geographically across U.S. states,
+# helping identify regional lending patterns and potential economic differences
+
+# Load U.S. map data (polygon coordinates for each state)
+state_map <- map_data("state")
+
+# Prepare loan data for mapping
+avg_loan_state_map <- avg_loan_state %>%
+  
+  # Join state abbreviations with full state names for compatibility with map data
+  left_join(state_lookup, by = "addr_state") %>%
+  
+  # Convert state names to lowercase to match map_data() format
+  mutate(region = tolower(state))
+
+# Merge geographic map data with loan data
+map_data_final <- state_map %>%
+  
+  # Join spatial coordinates with average loan values by state
+  left_join(avg_loan_state_map, by = "region")
+
+```
+```{r}
+# Business objective: Visualize geographic differences in average loan amounts across U.S. states
+
+ggplot(map_data_final, aes(long, lat, group = group, fill = avg_loan)) +
+  
+  # Draw state polygons
+  geom_polygon(color = "white") +
+  
+  # Blue gradient scale (light → dark)
+  scale_fill_gradient(
+    low = "#deebf7",   # azul claro
+    high = "#08519c",  # azul escuro
+    na.value = "grey90"
+  ) +
+  
+  # Titles and labels
+  labs(
+    title = "Average Loan Amount by State",
+    subtitle = "Geographic variation in lending patterns across the U.S.",
+    fill = "Avg Loan"
+  ) +
+  
+  # Clean style
+  theme_void()
+```
+### Interpretation
+
+The map highlights regional disparities in average loan amounts, with higher values concentrated in economically developed areas and states with higher cost of living. This reinforces the relationship between economic conditions and borrowing behavior.
+
+## 3)	Show visually the relationship between the annual income of the recipient and the loan amount obtained from Lending Club
+```{r viz3-income}
+# Business objective: Analyze the relationship between borrower income and loan amount,
+# identifying patterns in lending behavior while reducing the impact of extreme outliers
+
+loans_all %>%
+  
+  # Filter unrealistic or extreme values to improve visualization quality
+  filter(
+    annual_inc > 0,          # remove invalid or zero income values
+    annual_inc < 500000,     # limit extreme outliers in income
+    loan_amnt <= 40000       # Lending Club loan cap (ensures consistency)
+  ) %>%
+  
+  # Initialize plot with income on x-axis and loan amount on y-axis
+  ggplot(aes(x = annual_inc, y = loan_amnt)) +
+  
+  # Use hexbin plot to represent data density instead of individual points
+  # (better for large datasets and avoids overplotting)
+  geom_hex() +
+  
+  # Apply log scale to income to improve visualization of skewed distribution
+  scale_x_log10(labels = scales::comma) +
+  
+  # Add descriptive titles and axis labels for a non-technical audience
+  labs(
+    title = "Relationship Between Annual Income and Loan Amount",
+    subtitle = "Density-based visualization with log scale applied",
+    x = "Annual Income (USD, log scale)",
+    y = "Loan Amount (USD)"
+  ) +
+  
+  # Apply a clean and professional visual theme
+  theme_minimal()
+```
+### Interpretation
+
+The density-based visualization shows  a weak positive relationship between annual income and loan amount. While higher-income borrowers may have access to larger loans, the relationship is not strong or linear.
+
+The distribution shows a high concentration of observations at lower income levels, with a few extreme outliers significantly distorting the scale of the visualization. These outliers compress the majority of the data, making it difficult to clearly observe patterns.
+
+Overall, the results indicate that income alone is not a strong predictor of loan amount, suggesting that other factors such as credit grade, risk profile, and loan purpose play a more significant role in determining loan size.
+
+## 4)	Create a plot that shows the relationship between the length of employment and amount of loan obtained.
+```{r viz4-emp}
+  # Business objective: Analyze how loan amounts vary across different employment lengths,
+  # helping understand whether job stability influences borrowing behavior
+  loans_all %>%
+    filter(!is.na(emp_length), !is.na(loan_amnt)) %>% # Remove missing values to ensure accurate comparison
+    ggplot(aes(x = emp_length, y = loan_amnt)) +# Initialize plot: employment length (categorical) vs loan amount (numeric)
+    geom_boxplot() + # Use boxplot to visualize distribution (median, quartiles, and outliers)
+    labs( # Add titles and labels for clear communication
+      title = "Loan Amount by Employment Length",
+      subtitle = "Distribution of loan amounts across employment duration",
+      x = "Employment Length",
+      y = "Loan Amount"
+    ) +
+    theme_minimal() # Apply clean and professional theme
+```
+### Interpretation
+
+The relationship between employment length and loan amount appears weak, suggesting that while employment stability may contribute to creditworthiness, it is not a primary determinant of loan size.
+
+## 5)	Create a “regional” map and show an interesting relationship of your liking. 
+```{r viz5-region}
+# Aggregate total number of loans by region to analyze geographic distribution
+loans_region <- loans_geo %>%
+  # Group data by Region
+  group_by(Region) %>%
+  # Count total number of loans in each region
+  summarise(total_loans = n()) %>%
+  # Sort regions in descending order of loan volume
+  arrange(desc(total_loans)) # Create a bar chart to visualize loan distribution across regions
+ggplot(loans_region, aes(x = reorder(Region, total_loans), y = total_loans)) +
+  geom_col() + # Use bar chart (column chart) to represent total loans per region
+  coord_flip() + # Flip coordinates for better readability (horizontal bars)
+  labs(# Add descriptive title and axis labels
+    title = "Loan Distribution by Region",
+    subtitle = "Regional differences in lending activity",
+    x = "Region",
+    y = "Total Loans"
+  ) +
+  theme_minimal() # Apply a clean and minimal theme for better visualization
+```
+### Interpretation
+
+The regional distribution reveals concentration of lending activity in specific areas, particularly those with higher population density and economic activity. This suggests that Lending Club’s operations are more active in economically vibrant regions.
+  
